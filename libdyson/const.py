@@ -29,9 +29,11 @@ DEVICE_TYPE_NAMES = {
     DEVICE_TYPE_PURIFIER_HUMIDIFY_COOL_FORMALDEHYDE: "Purifier Humidify+Cool Formaldehyde",
 }
 
-ENVIRONMENTAL_OFF = -1
-ENVIRONMENTAL_INIT = -2
-ENVIRONMENTAL_FAIL = -3
+
+class Environmental(Enum):
+    OFF = -1
+    INIT = -2
+    FAIL = -3
 
 
 class MessageType(Enum):

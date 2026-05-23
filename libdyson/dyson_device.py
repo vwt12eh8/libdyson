@@ -1,16 +1,14 @@
 """Dyson device."""
-from abc import abstractmethod
+from abc import ABCMeta, abstractmethod
 import json
 import logging
 import threading
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar, Union, cast, overload
 
 import paho.mqtt.client as mqtt
 
 from .const import (
-    ENVIRONMENTAL_FAIL,
-    ENVIRONMENTAL_INIT,
-    ENVIRONMENTAL_OFF,
+    Environmental,
     MessageType,
 )
 from .exceptions import (
@@ -22,11 +20,12 @@ from .exceptions import (
 from .utils import mqtt_time
 
 _LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 TIMEOUT = 10
 
 
-class DysonDevice:
+class DysonDevice(metaclass=ABCMeta):
     """Base class for dyson devices."""
 
     def __init__(self, serial: str, credential: str):
@@ -101,7 +100,7 @@ class DysonDevice:
         if self._connected.wait(timeout=TIMEOUT):
             if error is not None:
                 self.disconnect()
-                raise error
+                raise error  # type: ignore
 
             _LOGGER.info("Connected to device %s", self._serial)
             if self._request_first_data():
@@ -117,6 +116,8 @@ class DysonDevice:
     def disconnect(self) -> None:
         """Disconnect from the device."""
         self._connected.clear()
+        if not self._mqtt_client:
+            return
         self._mqtt_client.disconnect()
         if not self._disconnected.wait(timeout=TIMEOUT):
             _LOGGER.warning("Disconnect timed out")
@@ -151,7 +152,9 @@ class DysonDevice:
         payload = json.loads(msg.payload.decode("utf-8"))
         self._handle_message(payload)
 
-    def _handle_message(self, payload: dict) -> None:
+    def _handle_message(self, payload) -> None:
+        if not isinstance(payload, dict):
+            return
         if payload["msg"] in ["CURRENT-STATE", "STATE-CHANGE"]:
             _LOGGER.debug("New state: %s", payload)
             self._update_status(payload)
@@ -165,7 +168,7 @@ class DysonDevice:
         """Update the device status."""
 
     def _send_command(self, command: str, data: Optional[dict] = None):
-        if not self.is_connected:
+        if not self._mqtt_client or not self.is_connected:
             raise DysonNotConnected
         if data is None:
             data = {}
@@ -178,7 +181,7 @@ class DysonDevice:
 
     def request_current_status(self):
         """Request current status."""
-        if not self.is_connected:
+        if not self._mqtt_client or not self.is_connected:
             raise DysonNotConnected
         payload = {
             "msg": "REQUEST-CURRENT-STATE",
@@ -195,7 +198,7 @@ class DysonFanDevice(DysonDevice):
         super().__init__(serial, credential)
         self._device_type = device_type
 
-        self._environmental_data = None
+        self._environmental_data = dict()
         self._environmental_data_available = threading.Event()
 
     @property
@@ -209,94 +212,104 @@ class DysonFanDevice(DysonDevice):
         return f"{self.device_type}/{self._serial}/status/current"
 
     @property
-    def fan_state(self) -> bool:
+    def fan_state(self) -> bool | None:
         """Return if the fan is running."""
-        return self._get_field_value(self._status, "fnst") == "FAN"
+        return self._get_field_value(self._status, "fnst", lambda x: x == "FAN")
 
     @property
     def speed(self) -> Optional[int]:
         """Return fan speed."""
-        speed = self._get_field_value(self._status, "fnsp")
-        if speed == "AUTO":
-            return None
-        return int(speed)
+        return self._get_field_value(self._status, "fnsp", lambda x: None if x == "AUTO" else int(x))
 
     @property
     @abstractmethod
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return if the device is on."""
 
     @property
     @abstractmethod
-    def auto_mode(self) -> bool:
+    def auto_mode(self) -> bool | None:
         """Return auto mode status."""
 
     @property
     @abstractmethod
-    def oscillation(self) -> bool:
+    def oscillation(self) -> bool | None:
         """Return oscillation status."""
 
     @property
-    def night_mode(self) -> bool:
+    def night_mode(self) -> bool | None:
         """Return night mode status."""
-        return self._get_field_value(self._status, "nmod") == "ON"
+        return self._get_field_value(self._status, "nmod", lambda x: x == "ON")
 
     @property
-    def continuous_monitoring(self) -> bool:
+    def continuous_monitoring(self) -> bool | None:
         """Return standby monitoring status."""
-        return self._get_field_value(self._status, "rhtm") == "ON"
+        return self._get_field_value(self._status, "rhtm", lambda x: x == "ON")
 
     @property
-    def error_code(self) -> str:
+    def error_code(self) -> str | None:
         """Return error code."""
-        return self._get_field_value(self._status, "ercd")
+        return self._get_field_value(self._status, "ercd", str)
 
     @property
-    def warning_code(self) -> str:
+    def warning_code(self) -> str | None:
         """Return warning code."""
-        return self._get_field_value(self._status, "wacd")
+        return self._get_field_value(self._status, "wacd", str)
 
     @property
-    def humidity(self) -> int:
+    def humidity(self):
         """Return humidity in percentage."""
         return self._get_environmental_field_value("hact")
 
     @property
-    def temperature(self) -> int:
+    def temperature(self):
         """Return temperature in kelvin."""
         return self._get_environmental_field_value("tact", divisor=10)
 
     @property
     @abstractmethod
-    def volatile_organic_compounds(self) -> int:
+    def volatile_organic_compounds(self) -> int | None:
         """Return VOCs."""
 
     @property
-    def sleep_timer(self) -> int:
+    def sleep_timer(self):
         """Return sleep timer in minutes."""
         return self._get_environmental_field_value("sltm")
 
     @staticmethod
-    def _get_field_value(state, field):
-        return state[field][1] if isinstance(state[field], list) else state[field]
+    def _get_field_value(state: dict, field, convert: Callable[[Any], _T]) -> _T | None:
+        if field not in state:
+            return None
+        return convert(state[field][1] if isinstance(state[field], list) else state[field])
+
+    @overload
+    def _get_environmental_field_value(self, field) -> Union[int, Environmental, None]:
+        ...
+
+    @overload
+    def _get_environmental_field_value(self, field, divisor: int) -> Union[float, Environmental, None]:
+        ...
 
     def _get_environmental_field_value(self, field, divisor=1):
-        value = self._get_field_value(self._environmental_data, field)
-        if value == "OFF":
-            return ENVIRONMENTAL_OFF
-        if value == "INIT":
-            return ENVIRONMENTAL_INIT
-        if value == "FAIL":
-            return ENVIRONMENTAL_FAIL
-        if divisor == 1:
-            return int(value)
-        return float(value) / divisor
+        def convert(value):
+            if value == "OFF":
+                return Environmental.OFF
+            if value == "INIT":
+                return Environmental.INIT
+            if value == "FAIL":
+                return Environmental.FAIL
+            if divisor == 1:
+                return int(value)
+            return float(value) / divisor
+        return self._get_field_value(self._environmental_data, field, convert)
 
-    def _handle_message(self, payload: dict) -> None:
+    def _handle_message(self, payload) -> None:
         super()._handle_message(payload)
+        if not isinstance(payload, dict):
+            return
         if payload["msg"] == "ENVIRONMENTAL-CURRENT-SENSOR-DATA":
             _LOGGER.debug("New environmental state: %s", payload)
-            self._environmental_data = payload["data"]
+            self._environmental_data = cast(dict, payload["data"])
             if not self._environmental_data_available.is_set():
                 self._environmental_data_available.set()
             for callback in self._callbacks:
@@ -305,8 +318,8 @@ class DysonFanDevice(DysonDevice):
     def _update_status(self, payload: dict) -> None:
         self._status = payload["product-state"]
 
-    def _set_configuration(self, **kwargs: dict) -> None:
-        if not self.is_connected:
+    def _set_configuration(self, **kwargs) -> None:
+        if not self._mqtt_client or not self.is_connected:
             raise DysonNotConnected
         payload = json.dumps(
             {
@@ -330,7 +343,7 @@ class DysonFanDevice(DysonDevice):
 
     def request_environmental_data(self):
         """Request environmental sensor data."""
-        if not self.is_connected:
+        if not self._mqtt_client or not self.is_connected:
             raise DysonNotConnected
         payload = {
             "msg": "REQUEST-PRODUCT-ENVIRONMENT-CURRENT-SENSOR-DATA",
@@ -407,24 +420,24 @@ class DysonHeatingDevice(DysonFanDevice):
     """Dyson heating fan device."""
 
     @property
-    def focus_mode(self) -> bool:
+    def focus_mode(self) -> bool | None:
         """Return if fan focus mode is on."""
-        return self._get_field_value(self._status, "ffoc") == "ON"
+        return self._get_field_value(self._status, "ffoc", lambda x: x == "ON")
 
     @property
-    def heat_target(self) -> float:
+    def heat_target(self) -> float | None:
         """Return heat target in kelvin."""
-        return int(self._get_field_value(self._status, "hmax")) / 10
+        return self._get_field_value(self._status, "hmax", lambda x: int(x) / 10)
 
     @property
-    def heat_mode_is_on(self) -> bool:
+    def heat_mode_is_on(self) -> bool | None:
         """Return if heat mode is set to on."""
-        return self._get_field_value(self._status, "hmod") == "HEAT"
+        return self._get_field_value(self._status, "hmod", lambda x: x == "HEAT")
 
     @property
-    def heat_status_is_on(self) -> bool:
+    def heat_status_is_on(self) -> bool | None:
         """Return if the device is currently heating."""
-        return self._get_field_value(self._status, "hsta") == "HEAT"
+        return self._get_field_value(self._status, "hsta", lambda x: x == "HEAT")
 
     def set_heat_target(self, heat_target: float) -> None:
         """Set heat target in kelvin."""

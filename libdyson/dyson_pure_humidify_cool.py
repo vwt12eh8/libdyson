@@ -19,56 +19,56 @@ class DysonPureHumidifyCool(DysonPureCoolBase):
     """Dyson Pure Humidify+Cool device."""
 
     @property
-    def oscillation(self) -> bool:
+    def oscillation(self) -> bool | None:
         """Return oscillation status."""
-        return self._get_field_value(self._status, "oson") == "ON"
+        return self._get_field_value(self._status, "oson", lambda x: x == "ON")
 
     @property
-    def oscillation_mode(self) -> HumidifyOscillationMode:
+    def oscillation_mode(self) -> HumidifyOscillationMode | None:
         """Return oscillation mode."""
-        return HumidifyOscillationMode(self._get_field_value(self._status, "ancp"))
+        return self._get_field_value(self._status, "ancp", HumidifyOscillationMode)
 
     @property
-    def humidification(self) -> bool:
+    def humidification(self) -> bool | None:
         """Return if humidification is on."""
-        return self._get_field_value(self._status, "hume") == "HUMD"
+        return self._get_field_value(self._status, "hume", lambda x: x == "HUMD")
 
     @property
-    def humidification_auto_mode(self) -> bool:
+    def humidification_auto_mode(self) -> bool | None:
         """Return if humidification auto mode is on."""
-        return self._get_field_value(self._status, "haut") == "ON"
+        return self._get_field_value(self._status, "haut", lambda x: x == "ON")
 
     @property
-    def target_humidity(self) -> int:
+    def target_humidity(self) -> int | None:
         """Return target humidity in percentage."""
-        return int(self._get_field_value(self._status, "humt"))
+        return self._get_field_value(self._status, "humt", int)
 
     @property
-    def auto_target_humidity(self) -> int:
+    def auto_target_humidity(self) -> int | None:
         """Return humidification auto mode target humidity."""
-        return int(self._get_field_value(self._status, "rect"))
+        return self._get_field_value(self._status, "rect", int)
 
     @property
-    def water_hardness(self) -> WaterHardness:
+    def water_hardness(self) -> WaterHardness | None:
         """Return the water hardness setting."""
-        return WATER_HARDNESS_STR_TO_ENUM[self._get_field_value(self._status, "wath")]
+        return self._get_field_value(self._status, "wath", lambda x: WATER_HARDNESS_STR_TO_ENUM[x])
 
     @property
-    def time_until_next_clean(self) -> int:
+    def time_until_next_clean(self) -> int | None:
         """Return the time remaining in hours before the next deep cleaning."""
-        return int(self._get_field_value(self._status, "cltr"))
+        return self._get_field_value(self._status, "cltr", int)
 
     @property
-    def clean_time_remaining(self) -> int:
+    def clean_time_remaining(self) -> int | None:
         """Return the time remaining in minutes before the cleaning finishes."""
-        return int(self._get_field_value(self._status, "cdrr"))
+        return self._get_field_value(self._status, "cdrr", int)
 
     def enable_oscillation(
         self, oscillation_mode: Optional[HumidifyOscillationMode] = None
     ) -> None:
         """Turn on oscillation."""
         if oscillation_mode is None:
-            oscillation_mode = self.oscillation_mode
+            oscillation_mode = self.oscillation_mode or HumidifyOscillationMode.DEGREE_45
 
         self._set_configuration(oson="ON", fpwr="ON", ancp=oscillation_mode.value)
 
@@ -107,4 +107,4 @@ class DysonPurifierHumidifyCoolFormaldehyde(DysonPureHumidifyCool):
     @property
     def formaldehyde(self):
         """Return formaldehyde reading."""
-        return int(self._get_environmental_field_value("hcho"))
+        return self._get_environmental_field_value("hchr")

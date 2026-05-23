@@ -10,67 +10,64 @@ class DysonPureCoolBase(DysonFanDevice):
     """Dyson Pure Cool series base class."""
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return if the device is on."""
-        return self._get_field_value(self._status, "fpwr") == "ON"
+        return self._get_field_value(self._status, "fpwr", lambda x: x == "ON")
 
     @property
-    def auto_mode(self) -> bool:
+    def auto_mode(self) -> bool | None:
         """Return auto mode status."""
-        return self._get_field_value(self._status, "auto") == "ON"
+        return self._get_field_value(self._status, "auto", lambda x: x == "ON")
 
     @property
     @abstractmethod
-    def oscillation(self) -> bool:
+    def oscillation(self) -> bool | None:
         """Return oscillation status."""
 
     @property
-    def oscillation_status(self) -> bool:
+    def oscillation_status(self) -> bool | None:
         """Return the status of oscillation."""
-        return self._get_field_value(self._status, "oscs") == "ON"
+        return self._get_field_value(self._status, "oscs", lambda x: x == "ON")
 
     @property
-    def front_airflow(self) -> bool:
+    def front_airflow(self) -> bool | None:
         """Return if airflow from front is on."""
-        return self._get_field_value(self._status, "fdir") == "ON"
+        return self._get_field_value(self._status, "fdir", lambda x: x == "ON")
 
     @property
-    def night_mode_speed(self) -> int:
+    def night_mode_speed(self) -> int | None:
         """Return speed in night mode."""
-        return int(self._get_field_value(self._status, "nmdv"))
+        return self._get_field_value(self._status, "nmdv", int)
 
     @property
     def carbon_filter_life(self) -> Optional[int]:
         """Return carbon filter life in percentage."""
-        filter_life = self._get_field_value(self._status, "cflr")
-        if filter_life == "INV":
-            return None
-        return int(filter_life)
+        return self._get_field_value(self._status, "cflr", lambda x: None if x == "INV" else int(x))
 
     @property
     def hepa_filter_life(self) -> Optional[int]:
         """Return HEPA filter life in percentage."""
-        return int(self._get_field_value(self._status, "hflr"))
+        return self._get_field_value(self._status, "hflr", int)
 
     @property
     def particulate_matter_2_5(self):
         """Return PM 2.5 in micro grams per cubic meter."""
-        return int(self._get_environmental_field_value("pm25"))
+        return self._get_environmental_field_value("p25r")
 
     @property
     def particulate_matter_10(self):
         """Return PM 2.5 in micro grams per cubic meter."""
-        return int(self._get_environmental_field_value("pm10"))
+        return self._get_environmental_field_value("p10r")
 
     @property
     def volatile_organic_compounds(self):
         """Return VOCs in micro grams per cubic meter."""
-        return int(self._get_environmental_field_value("va10"))
+        return self._get_environmental_field_value("va10")
 
     @property
     def nitrogen_dioxide(self):
         """Return nitrogen dioxide level in micro grams per cubic meter."""
-        return int(self._get_environmental_field_value("noxl"))
+        return self._get_environmental_field_value("noxl")
 
     def turn_on(self) -> None:
         """Turn on the device."""
@@ -118,21 +115,21 @@ class DysonPureCool(DysonPureCoolBase):
     """Dyson Pure Cool device."""
 
     @property
-    def oscillation(self) -> bool:
+    def oscillation(self) -> bool | None:
         """Return oscillation status."""
         # Seems some devices use OION/OIOF while others uses ON/OFF
         # https://github.com/shenxn/ha-dyson/issues/22
-        return self._get_field_value(self._status, "oson") in ["OION", "ON"]
+        return self._get_field_value(self._status, "oson", lambda x: x in ["OION", "ON"])
 
     @property
-    def oscillation_angle_low(self) -> int:
+    def oscillation_angle_low(self) -> int | None:
         """Return oscillation low angle."""
-        return int(self._get_field_value(self._status, "osal"))
+        return self._get_field_value(self._status, "osal", int)
 
     @property
-    def oscillation_angle_high(self) -> int:
+    def oscillation_angle_high(self) -> int | None:
         """Return oscillation high angle."""
-        return int(self._get_field_value(self._status, "osau"))
+        return self._get_field_value(self._status, "osau", int)
 
     def enable_oscillation(
         self,
@@ -145,16 +142,16 @@ class DysonPureCool(DysonPureCoolBase):
         if angle_high is None:
             angle_high = self.oscillation_angle_high
 
-        if not 5 <= angle_low <= 355:
+        if angle_low is None or not 5 <= angle_low <= 355:
             raise ValueError("angle_low must be between 5 and 355")
-        if not 5 <= angle_high <= 355:
+        if angle_high is None or not 5 <= angle_high <= 355:
             raise ValueError("angle_high must be between 5 and 355")
         if angle_low != angle_high and angle_low + 30 > angle_high:
             raise ValueError(
                 "angle_high must be either equal to angle_low or at least 30 larger than angle_low"
             )
 
-        current_oscillation_raw = self._get_field_value(self._status, "oson")
+        current_oscillation_raw = self._get_field_value(self._status, "oson", str)
         if current_oscillation_raw in ["OION", "OIOF"]:
             oson = "OION"
         else:
@@ -169,7 +166,7 @@ class DysonPureCool(DysonPureCoolBase):
 
     def disable_oscillation(self) -> None:
         """Turn off oscillation."""
-        current_oscillation_raw = self._get_field_value(self._status, "oson")
+        current_oscillation_raw = self._get_field_value(self._status, "oson", str)
         if current_oscillation_raw in ["OION", "OIOF"]:
             oson = "OIOF"
         else:
@@ -181,7 +178,7 @@ class DysonPureCoolFormaldehyde(DysonPureCool):
     """This model is compatible with PureCool but has one additional sensor."""
 
     @property
-    def formaldehyde(self) -> Optional[int]:
+    def formaldehyde(self):
         """Return formaldehyde reading."""
         # Dyson documentation for Dyson Pure Cool Formaldehyde refers to
         # the formaldehyde reading as HCHO (pp5).
@@ -191,4 +188,4 @@ class DysonPureCoolFormaldehyde(DysonPureCool):
         #
         # This is part of environmental data as per:
         # https://github.com/seanrees/prometheus-dyson/issues/13#issue-923525150
-        return self._get_environmental_field_value("hcho")
+        return self._get_environmental_field_value("hchr")

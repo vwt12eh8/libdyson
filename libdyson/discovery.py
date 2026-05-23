@@ -4,7 +4,7 @@ import socket
 import threading
 from typing import Callable, Optional
 
-from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf
+from zeroconf import ServiceBrowser, ServiceInfo, ServiceListener, Zeroconf
 
 from .dyson_device import DysonDevice
 
@@ -48,6 +48,7 @@ class DysonDiscovery:
 
     def start_discovery(self, zeroconf_instance: Optional[Zeroconf] = None) -> None:
         """Start discovery."""
+        self.stop_discovery()
         listener = DysonListener(self)
         zeroconf = zeroconf_instance or Zeroconf()
         self._browser = ServiceBrowser(
@@ -58,6 +59,8 @@ class DysonDiscovery:
 
     def stop_discovery(self) -> None:
         """Stop discovery."""
+        if not self._browser:
+            return
         try:
             self._browser.cancel()
         except RuntimeError:
@@ -68,7 +71,7 @@ class DysonDiscovery:
         self._browser = None
 
 
-class DysonListener:
+class DysonListener(ServiceListener):
     """Listener for zeroconf events."""
 
     def __init__(self, dyson_discovery: DysonDiscovery):
@@ -78,6 +81,7 @@ class DysonListener:
     def add_service(self, zeroconf: Zeroconf, type: str, name: str) -> None:
         """Add a new service."""
         info = zeroconf.get_service_info(type, name)
+        assert info
         self._dyson_discovery.device_discovered(info)
 
     def update_service(self, zeroconf: Zeroconf, type: str, name: str) -> None:

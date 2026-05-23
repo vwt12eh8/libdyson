@@ -8,9 +8,9 @@ class DysonPureCoolLink(DysonFanDevice):
     """Dyson Pure Cool Link device."""
 
     @property
-    def fan_mode(self) -> str:
+    def fan_mode(self) -> str | None:
         """Return the fan mode of the fan."""
-        return self._get_field_value(self._status, "fmod")
+        return self._get_field_value(self._status, "fmod", str)
 
     @property
     def is_on(self) -> bool:
@@ -23,27 +23,27 @@ class DysonPureCoolLink(DysonFanDevice):
         return self.fan_mode == "AUTO"
 
     @property
-    def oscillation(self) -> bool:
+    def oscillation(self) -> bool | None:
         """Return oscillation status."""
-        return self._get_field_value(self._status, "oson") == "ON"
+        return self._get_field_value(self._status, "oson", lambda x: x == "ON")
 
     @property
-    def air_quality_target(self) -> AirQualityTarget:
+    def air_quality_target(self) -> AirQualityTarget | None:
         """Return air quality target."""
-        return AirQualityTarget(self._get_field_value(self._status, "qtar"))
+        return self._get_field_value(self._status, "qtar", lambda x: AirQualityTarget(x))
 
     @property
-    def filter_life(self) -> int:
+    def filter_life(self) -> int | None:
         """Return filter life in hours."""
-        return int(self._get_field_value(self._status, "filf"))
+        return self._get_field_value(self._status, "filf", int)
 
     @property
-    def particulates(self) -> int:
+    def particulates(self):
         """Return particulate matter in unknown unit."""
         return self._get_environmental_field_value("pact")
 
     @property
-    def volatile_organic_compounds(self) -> int:
+    def volatile_organic_compounds(self):
         """Return VOCs in unknown unit."""
         return self._get_environmental_field_value("vact")
 

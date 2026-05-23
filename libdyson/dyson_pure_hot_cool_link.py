@@ -8,9 +8,9 @@ class DysonPureHotCoolLink(DysonPureCoolLink, DysonHeatingDevice):
     """Dyson Pure Hot+Cool Link device."""
 
     @property
-    def tilt(self) -> bool:
+    def tilt(self) -> bool | None:
         """Return tilt status."""
-        return self._get_field_value(self._status, "tilt") == "TILT"
+        return self._get_field_value(self._status, "tilt", lambda x: x == "TILT")
 
     def enable_focus_mode(self) -> None:
         """Enable fan focus mode."""
